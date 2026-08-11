@@ -32,6 +32,7 @@ func New(apiKey string) *Client {
 func (c *Client) Send(
 	ctx context.Context,
 	message email.Message,
+	idempotencyKey string,
 ) (*email.SendResult, error) {
 	payload := sendRequest{
 		From:    message.From,
@@ -58,6 +59,7 @@ func (c *Client) Send(
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", idempotencyKey)
 
 	resp, err := c.client.Do(req)
 	if err != nil {

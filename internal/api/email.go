@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -21,7 +22,8 @@ type sendEmailRequest struct {
 }
 
 type sendEmailResponse struct {
-	ID string `json:"id"`
+	ID       string `json:"id"`
+	Replayed bool   `json:"replayed"`
 }
 
 func SendEmail(service *email.Service) http.HandlerFunc {
@@ -29,6 +31,17 @@ func SendEmail(service *email.Service) http.HandlerFunc {
 		project, ok := auth.ProjectFromContext(r.Context())
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+		if idempotencyKey == "" {
+			writeError(w, http.StatusBadRequest, "Idempotency-Key header is required")
+			return
+		}
+
+		if len(idempotencyKey) > email.MaxIdempotencyKeyLength {
+			writeError(w, http.StatusBadRequest, "Idempotency-Key must be at most 256 characters")
 			return
 		}
 
@@ -46,9 +59,20 @@ func SendEmail(service *email.Service) http.HandlerFunc {
 		req.From = strings.TrimSpace(req.From)
 		req.Subject = strings.TrimSpace(req.Subject)
 
+		for i := range req.To {
+			req.To[i] = strings.TrimSpace(req.To[i])
+		}
+
 		if req.From == "" || len(req.To) == 0 || req.Subject == "" {
 			writeError(w, http.StatusBadRequest, "from, to and subject are required")
 			return
+		}
+
+		for _, recipient := range req.To {
+			if recipient == "" {
+				writeError(w, http.StatusBadRequest, "to cannot contain an empty recipient")
+				return
+			}
 		}
 
 		if strings.TrimSpace(req.HTML) == "" && strings.TrimSpace(req.Text) == "" {
@@ -56,25 +80,42 @@ func SendEmail(service *email.Service) http.HandlerFunc {
 			return
 		}
 
-		result, err := service.Send(r.Context(), project.ID, email.Message{
-			From:    req.From,
-			To:      req.To,
-			Subject: req.Subject,
-			HTML:    req.HTML,
-			Text:    req.Text,
-		})
+		result, err := service.Send(
+			r.Context(),
+			project.ID,
+			idempotencyKey,
+			email.Message{
+				From:    req.From,
+				To:      req.To,
+				Subject: req.Subject,
+				HTML:    req.HTML,
+				Text:    req.Text,
+			},
+		)
 		if err != nil {
-			slog.Error(
-				"email send failed",
-				"project_id", project.ID,
-				"error", err,
-			)
-			writeError(w, http.StatusBadGateway, "email provider rejected the request")
+			switch {
+			case errors.Is(err, email.ErrIdempotencyConflict):
+				writeError(w, http.StatusConflict, err.Error())
+			case errors.Is(err, email.ErrIdempotencyWindowExpired):
+				writeError(w, http.StatusConflict, err.Error())
+			default:
+				slog.Error(
+					"email send failed",
+					"project_id", project.ID,
+					"error", err,
+				)
+				writeError(w, http.StatusBadGateway, "email provider request failed")
+			}
 			return
 		}
 
+		if result.Replayed {
+			w.Header().Set("Idempotency-Replayed", "true")
+		}
+
 		writeJSON(w, http.StatusOK, sendEmailResponse{
-			ID: result.ProviderID,
+			ID:       result.ProviderID,
+			Replayed: result.Replayed,
 		})
 	}
 }

@@ -4,6 +4,7 @@ go 1.26.5
 
 require (
 	github.com/joho/godotenv v1.5.1
+	github.com/svix/svix-webhooks v1.99.1
 	modernc.org/sqlite v1.56.0
 )
 

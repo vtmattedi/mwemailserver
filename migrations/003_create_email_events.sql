@@ -5,20 +5,20 @@ CREATE TABLE IF NOT EXISTS email_events (
 
     provider TEXT NOT NULL,
 
-    -- For Resend this is the `svix-id` request header.
-    -- Resend provides at-least-once delivery, so this is used to deduplicate retries/replays.
+    -- Resend/Svix request identifier from the svix-id header.
+    -- Used to deduplicate at-least-once webhook delivery and replays.
     provider_event_id TEXT NOT NULL,
 
-    -- Provider email ID from webhook payload, e.g. Resend data.email_id.
+    -- Provider-side email ID from the webhook payload.
     provider_email_id TEXT,
 
-    -- e.g. email.sent, email.delivered, email.bounced, email.opened, email.clicked.
+    -- e.g. email.sent, email.delivered, email.bounced, email.opened.
     event_type TEXT NOT NULL,
 
-    -- Provider's event creation timestamp from the webhook payload.
+    -- Canonical UTC RFC3339 timestamp from the provider payload.
     occurred_at TEXT NOT NULL,
 
-    -- Time our gateway accepted/persisted this webhook.
+    -- Time our gateway persisted the event.
     received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (email_attempt_id)

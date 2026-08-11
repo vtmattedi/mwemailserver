@@ -16,3 +16,4 @@ dist/
 .idea/
 .vscode/
 .init_scripts/
+.final-init-backup/

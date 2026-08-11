@@ -2,23 +2,39 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/vtmattedi/mw-email-server/internal/domain"
 )
 
-type CreateEmailAttemptParams struct {
-	ProjectID      int64
-	Sender         string
-	Subject        string
-	RecipientCount int
+type EmailAttempt struct {
+	ID                 int64
+	ProjectID          int64
+	Provider           string
+	ProviderID         string
+	Status             string
+	IdempotencyKeyHash string
+	RequestHash        string
+	CreatedAt          time.Time
 }
 
-type RecordEmailEventParams struct {
-	EmailAttemptID  *int64
+type ReserveEmailAttemptParams struct {
+	ProjectID          int64
+	Provider           string
+	Sender             string
+	Subject            string
+	RecipientCount     int
+	IdempotencyKeyHash string
+	RequestHash        string
+}
+
+type ProcessEmailEventParams struct {
 	Provider        string
 	ProviderEventID string
+	ProviderEmailID string
 	EventType       string
-	OccurredAt      string
+	OccurredAt      time.Time
+	DeliveryStatus  string
 }
 
 type Store interface {
@@ -27,10 +43,15 @@ type Store interface {
 		hash string,
 	) (*domain.Project, error)
 
-	CreateEmailAttempt(
+	ReserveEmailAttempt(
 		ctx context.Context,
-		params CreateEmailAttemptParams,
-	) (int64, error)
+		params ReserveEmailAttemptParams,
+	) (attempt EmailAttempt, created bool, err error)
+
+	ResetEmailAttemptForRetry(
+		ctx context.Context,
+		id int64,
+	) error
 
 	MarkEmailSent(
 		ctx context.Context,
@@ -44,8 +65,8 @@ type Store interface {
 		errorMessage string,
 	) error
 
-	RecordEmailEvent(
+	ProcessEmailEvent(
 		ctx context.Context,
-		params RecordEmailEventParams,
-	) error
+		params ProcessEmailEventParams,
+	) (duplicate bool, err error)
 }

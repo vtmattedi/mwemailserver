@@ -31,9 +31,23 @@ func main() {
 	provider := resend.New(cfg.ResendAPIKey)
 	emailService := email.NewService(provider, db)
 
+	var resendWebhookVerifier *resend.WebhookVerifier
+	if cfg.ResendWebhookSecret != "" {
+		resendWebhookVerifier, err = resend.NewWebhookVerifier(cfg.ResendWebhookSecret)
+		if err != nil {
+			slog.Error("invalid RESEND_WEBHOOK_SECRET", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		slog.Warn(
+			"RESEND_WEBHOOK_SECRET is empty; /webhooks/resend will return 503 until configured",
+		)
+	}
+
 	router := api.NewRouter(api.Dependencies{
-		EmailService: emailService,
-		Store:        db,
+		EmailService:          emailService,
+		Store:                 db,
+		ResendWebhookVerifier: resendWebhookVerifier,
 	})
 
 	server := &http.Server{

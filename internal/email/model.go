@@ -10,4 +10,5 @@ type Message struct {
 
 type SendResult struct {
 	ProviderID string
+	Replayed   bool
 }

@@ -6,17 +6,24 @@ import (
 
 	"github.com/vtmattedi/mw-email-server/internal/auth"
 	"github.com/vtmattedi/mw-email-server/internal/email"
+	"github.com/vtmattedi/mw-email-server/internal/providers/resend"
 	"github.com/vtmattedi/mw-email-server/internal/store"
 )
 
 type Dependencies struct {
-	EmailService *email.Service
-	Store        store.Store
+	EmailService          *email.Service
+	Store                 store.Store
+	ResendWebhookVerifier *resend.WebhookVerifier
 }
 
 func NewRouter(deps Dependencies) http.Handler {
 	root := http.NewServeMux()
+
 	root.HandleFunc("GET /health", Health)
+	root.HandleFunc(
+		"POST /webhooks/resend",
+		ResendWebhook(deps.Store, deps.ResendWebhookVerifier),
+	)
 
 	protected := http.NewServeMux()
 	protected.HandleFunc("POST /v1/emails", SendEmail(deps.EmailService))
@@ -31,7 +38,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.WriteHeader(status)
 
 	if value != nil {
-		json.NewEncoder(w).Encode(value)
+		_ = json.NewEncoder(w).Encode(value)
 	}
 }
 
