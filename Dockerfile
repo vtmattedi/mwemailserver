@@ -7,13 +7,20 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/mw-email-server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -o /app/mw-email-server \
+    ./cmd/server
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -o /app/create-admin \
+    ./cmd/create-admin
 
 FROM alpine:latest
 
 WORKDIR /app
 
 COPY --from=builder /app/mw-email-server /app/mw-email-server
+COPY --from=builder /app/create-admin /app/create-admin
 
 RUN mkdir -p /app/data
 

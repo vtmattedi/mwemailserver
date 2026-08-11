@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/vtmattedi/mw-email-server/internal/admin"
 	"github.com/vtmattedi/mw-email-server/internal/api"
 	"github.com/vtmattedi/mw-email-server/internal/config"
 	"github.com/vtmattedi/mw-email-server/internal/email"
@@ -30,6 +31,7 @@ func main() {
 
 	provider := resend.New(cfg.ResendAPIKey)
 	emailService := email.NewService(provider, db)
+	adminService := admin.NewService(db, admin.DefaultSessionTTL)
 
 	var resendWebhookVerifier *resend.WebhookVerifier
 	if cfg.ResendWebhookSecret != "" {
@@ -44,10 +46,19 @@ func main() {
 		)
 	}
 
+	if len(cfg.AdminOrigins) == 0 {
+		slog.Warn(
+			"no admin origins configured; /admin/api routes will remain concealed",
+		)
+	}
+
 	router := api.NewRouter(api.Dependencies{
 		EmailService:          emailService,
 		Store:                 db,
 		ResendWebhookVerifier: resendWebhookVerifier,
+		AdminService:          adminService,
+		AdminOrigins:          cfg.AdminOrigins,
+		AdminSecureCookie:     cfg.AdminSecureCookie,
 	})
 
 	server := &http.Server{
