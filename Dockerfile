@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26.5-alpine AS builder
 
 WORKDIR /src
 
@@ -24,6 +24,6 @@ COPY --from=builder /app/create-admin /app/create-admin
 
 RUN mkdir -p /app/data
 
-EXPOSE 8080
+EXPOSE 8082
 
 CMD ["/app/mw-email-server"]
