@@ -52,6 +52,14 @@ func main() {
 		)
 	}
 
+	if cfg.CheckSPHost {
+		slog.Info(
+			"StackPort Host concealment enabled",
+			"sp_host",
+			cfg.SPHost,
+		)
+	}
+
 	router := api.NewRouter(api.Dependencies{
 		EmailService:          emailService,
 		Store:                 db,
@@ -59,6 +67,8 @@ func main() {
 		AdminService:          adminService,
 		AdminOrigins:          cfg.AdminOrigins,
 		AdminSecureCookie:     cfg.AdminSecureCookie,
+		CheckSPHost:           cfg.CheckSPHost,
+		SPHost:                cfg.SPHost,
 	})
 
 	server := &http.Server{

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -12,23 +13,41 @@ type contextKey uint8
 
 const sessionContextKey contextKey = iota
 
-func OriginGate(
-	allowedOrigins []string,
+type ConcealmentConfig struct {
+	AllowedOrigins []string
+	CheckHost      bool
+	RequiredHost   string
+}
+
+func Conceal(
+	cfg ConcealmentConfig,
 	next http.Handler,
 ) http.Handler {
-	allowed := make(map[string]struct{}, len(allowedOrigins))
-	for _, origin := range allowedOrigins {
+	allowedOrigins := make(map[string]struct{}, len(cfg.AllowedOrigins))
+
+	for _, origin := range cfg.AllowedOrigins {
 		origin = strings.TrimSpace(origin)
 		if origin != "" {
-			allowed[origin] = struct{}{}
+			allowedOrigins[origin] = struct{}{}
 		}
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := strings.TrimSpace(r.Header.Get("Origin"))
+	requiredHost := normalizeRequestHost(cfg.RequiredHost)
 
-		if _, ok := allowed[origin]; !ok {
-			// Intentionally indistinguishable from an ordinary unhandled route.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cfg.CheckHost {
+			requestHost := normalizeRequestHost(r.Host)
+
+			if requestHost == "" ||
+				requiredHost == "" ||
+				!strings.EqualFold(requestHost, requiredHost) {
+				http.NotFound(w, r)
+				return
+			}
+		}
+
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if _, ok := allowedOrigins[origin]; !ok {
 			http.NotFound(w, r)
 			return
 		}
@@ -52,6 +71,19 @@ func OriginGate(
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func normalizeRequestHost(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return ""
+	}
+
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+
+	return strings.TrimSuffix(value, ".")
 }
 
 func RequireSession(

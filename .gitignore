@@ -18,3 +18,4 @@ dist/
 .init_scripts/
 .final-init-backup/
 .adminapi-backup/
+.sp-patch-backup/

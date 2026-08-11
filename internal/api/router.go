@@ -19,6 +19,9 @@ type Dependencies struct {
 	AdminService      *admin.Service
 	AdminOrigins      []string
 	AdminSecureCookie bool
+
+	CheckSPHost bool
+	SPHost      string
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -106,7 +109,14 @@ func newAdminRouter(deps Dependencies) http.Handler {
 		sessionOnly(http.HandlerFunc(AdminGetEmail(deps.AdminService))),
 	)
 
-	return admin.OriginGate(deps.AdminOrigins, mux)
+	return admin.Conceal(
+		admin.ConcealmentConfig{
+			AllowedOrigins: deps.AdminOrigins,
+			CheckHost:      deps.CheckSPHost,
+			RequiredHost:   deps.SPHost,
+		},
+		mux,
+	)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
