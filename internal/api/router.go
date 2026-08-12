@@ -11,9 +11,15 @@ import (
 	"github.com/vtmattedi/mw-email-server/internal/store"
 )
 
+// MW_ALLOWED_REQUEST_DOMAINS_V1
+type GatewayStore interface {
+	store.Store
+	RequestDomainStore
+}
+
 type Dependencies struct {
 	EmailService          *email.Service
-	Store                 store.Store
+	Store                 GatewayStore
 	ResendWebhookVerifier *resend.WebhookVerifier
 
 	AdminService      *admin.Service
@@ -45,9 +51,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	*/
 	protected := http.NewServeMux()
 
-	protected.HandleFunc(
+	protected.Handle(
 		"POST /v1/emails",
-		SendEmail(deps.EmailService),
+		RequireAllowedRequestDomain(
+			deps.Store,
+			http.HandlerFunc(SendEmail(deps.EmailService)),
+		),
 	)
 
 	root.Handle(
@@ -88,10 +97,10 @@ func NewRouter(deps Dependencies) http.Handler {
 		adminDevOrigin = deps.AdminOrigins[1]
 	}
 
-	return emailTesterCORS(
+	return RequestEmailCORS(emailTesterCORS(
 		adminOrigin,
 		adminDevOrigin,
-	)(root)
+	)(root))
 }
 
 func newAdminRouter(deps Dependencies) http.Handler {
@@ -188,6 +197,19 @@ func newAdminRouter(deps Dependencies) http.Handler {
 				AdminRotateProjectKey(deps.AdminService),
 			),
 		),
+	)
+
+	mux.Handle(
+		"GET /admin/api/projects/{id}/request-domains",
+		sessionOnly(http.HandlerFunc(
+			AdminGetProjectRequestDomains(deps.Store),
+		)),
+	)
+	mux.Handle(
+		"PUT /admin/api/projects/{id}/request-domains",
+		sessionAndCSRF(http.HandlerFunc(
+			AdminPutProjectRequestDomains(deps.Store),
+		)),
 	)
 
 	mux.Handle(
