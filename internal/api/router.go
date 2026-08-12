@@ -12,9 +12,11 @@ import (
 )
 
 // MW_ALLOWED_REQUEST_DOMAINS_V1
+// MW_PROJECT_EMAIL_COUNTS_V1
 type GatewayStore interface {
 	store.Store
 	RequestDomainStore
+	ProjectEmailCountStore
 }
 
 type Dependencies struct {
@@ -217,6 +219,15 @@ func newAdminRouter(deps Dependencies) http.Handler {
 		sessionOnly(
 			http.HandlerFunc(
 				AdminListEmails(deps.AdminService),
+			),
+		),
+	)
+
+	mux.Handle(
+		"GET /admin/api/emails/by-project",
+		sessionOnly(
+			http.HandlerFunc(
+				AdminProjectEmailCounts(deps.Store),
 			),
 		),
 	)
