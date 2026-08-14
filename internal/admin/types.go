@@ -2,6 +2,16 @@ package admin
 
 import "time"
 
+type Principal struct {
+	Source          string
+	LocalAdminID    *int64
+	IdentitySubject *string
+	Scopes          []string
+	AuthTime        *time.Time
+	AMR             []string
+	Audience        string
+}
+
 type User struct {
 	ID          int64      `json:"id"`
 	Email       string     `json:"email"`

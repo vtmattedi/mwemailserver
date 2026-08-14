@@ -11,7 +11,10 @@ const SessionCookieName = "mw_admin_session"
 
 type contextKey uint8
 
-const sessionContextKey contextKey = iota
+const (
+	sessionContextKey contextKey = iota
+	principalContextKey
+)
 
 type ConcealmentConfig struct {
 	AllowedOrigins []string
@@ -73,6 +76,20 @@ func Conceal(
 	})
 }
 
+func RequireHost(cfg ConcealmentConfig, next http.Handler) http.Handler {
+	requiredHost := normalizeRequestHost(cfg.RequiredHost)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cfg.CheckHost {
+			requestHost := normalizeRequestHost(r.Host)
+			if requestHost == "" || requiredHost == "" || !strings.EqualFold(requestHost, requiredHost) {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func normalizeRequestHost(value string) string {
 	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "" {
@@ -104,8 +121,21 @@ func RequireSession(
 		}
 
 		ctx := context.WithValue(r.Context(), sessionContextKey, session)
+		localID := session.User.ID
+		ctx = context.WithValue(ctx, principalContextKey, Principal{
+			Source: "local", LocalAdminID: &localID,
+		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func PrincipalFromContext(ctx context.Context) (Principal, bool) {
+	principal, ok := ctx.Value(principalContextKey).(Principal)
+	return principal, ok
+}
+
+func WithPrincipal(ctx context.Context, principal Principal) context.Context {
+	return context.WithValue(ctx, principalContextKey, principal)
 }
 
 func RequireCSRF(

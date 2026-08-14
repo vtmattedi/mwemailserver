@@ -11,6 +11,7 @@ import (
 	"github.com/vtmattedi/mw-email-server/internal/api"
 	"github.com/vtmattedi/mw-email-server/internal/config"
 	"github.com/vtmattedi/mw-email-server/internal/email"
+	"github.com/vtmattedi/mw-email-server/internal/federation"
 	"github.com/vtmattedi/mw-email-server/internal/providers/resend"
 	"github.com/vtmattedi/mw-email-server/internal/store/sqlite"
 )
@@ -33,6 +34,21 @@ func main() {
 	emailService := email.NewService(provider, db)
 	adminService := admin.NewService(db, admin.DefaultSessionTTL)
 
+	var federationClient federation.Introspector
+	if cfg.AdminAuthMode != "local" {
+		federationClient, err = federation.NewClient(
+			cfg.IdentityInternalBaseURL,
+			cfg.IdentityIntrospectionClientID,
+			cfg.IdentityIntrospectionSecret,
+			cfg.IdentityAudience,
+			cfg.IdentityHTTPTimeout,
+		)
+		if err != nil {
+			slog.Error("failed to configure federation", "error", err)
+			os.Exit(1)
+		}
+	}
+
 	var resendWebhookVerifier *resend.WebhookVerifier
 	if cfg.ResendWebhookSecret != "" {
 		resendWebhookVerifier, err = resend.NewWebhookVerifier(cfg.ResendWebhookSecret)
@@ -46,11 +62,13 @@ func main() {
 		)
 	}
 
-	if len(cfg.AdminOrigins) == 0 {
+	if len(cfg.AdminOrigins) == 0 && cfg.AdminAuthMode != "federated" {
 		slog.Warn(
 			"no admin origins configured; /admin/api routes will remain concealed",
 		)
 	}
+
+	slog.Info("admin authentication configured", "mode", cfg.AdminAuthMode)
 
 	if cfg.CheckSPHost {
 		slog.Info(
@@ -67,6 +85,8 @@ func main() {
 		AdminService:          adminService,
 		AdminOrigins:          cfg.AdminOrigins,
 		AdminSecureCookie:     cfg.AdminSecureCookie,
+		AdminAuthMode:         cfg.AdminAuthMode,
+		FederationClient:      federationClient,
 		CheckSPHost:           cfg.CheckSPHost,
 		SPHost:                cfg.SPHost,
 	})

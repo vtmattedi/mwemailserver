@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -20,6 +21,13 @@ type Config struct {
 
 	AdminOrigins      []string
 	AdminSecureCookie bool
+	AdminAuthMode     string
+
+	IdentityInternalBaseURL       string
+	IdentityIntrospectionClientID string
+	IdentityIntrospectionSecret   string
+	IdentityAudience              string
+	IdentityHTTPTimeout           time.Duration
 
 	CheckSPHost bool
 	SPHost      string
@@ -48,6 +56,16 @@ func Load() (Config, error) {
 		}
 	}
 
+	authMode := strings.ToLower(env("ADMIN_AUTH_MODE", "local"))
+	if authMode != "local" && authMode != "hybrid" && authMode != "federated" {
+		return Config{}, fmt.Errorf("ADMIN_AUTH_MODE must be local, hybrid or federated")
+	}
+
+	timeoutSeconds, err := envPositiveInt("MW_IDENTITY_HTTP_TIMEOUT_SECONDS", 5)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Environment:         environment,
 		Port:                env("PORT", "8080"),
@@ -57,6 +75,13 @@ func Load() (Config, error) {
 
 		AdminOrigins:      adminOrigins,
 		AdminSecureCookie: !strings.EqualFold(environment, "development"),
+		AdminAuthMode:     authMode,
+
+		IdentityInternalBaseURL:       strings.TrimSpace(os.Getenv("MW_IDENTITY_INTERNAL_BASE_URL")),
+		IdentityIntrospectionClientID: strings.TrimSpace(os.Getenv("MW_IDENTITY_INTROSPECTION_CLIENT_ID")),
+		IdentityIntrospectionSecret:   strings.TrimSpace(os.Getenv("MW_IDENTITY_INTROSPECTION_CLIENT_SECRET")),
+		IdentityAudience:              env("MW_IDENTITY_AUDIENCE", "mw-mail"),
+		IdentityHTTPTimeout:           time.Duration(timeoutSeconds) * time.Second,
 
 		CheckSPHost: checkSPHost,
 		SPHost:      spHost,
@@ -66,7 +91,29 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("RESEND_API_KEY is required")
 	}
 
+	if authMode != "local" {
+		if cfg.IdentityInternalBaseURL == "" || cfg.IdentityIntrospectionClientID == "" || cfg.IdentityIntrospectionSecret == "" {
+			return Config{}, fmt.Errorf("MW Identity introspection configuration is required in %s admin auth mode", authMode)
+		}
+		parsed, err := url.Parse(cfg.IdentityInternalBaseURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return Config{}, fmt.Errorf("MW_IDENTITY_INTERNAL_BASE_URL must be an absolute HTTP(S) URL")
+		}
+	}
+
 	return cfg, nil
+}
+
+func envPositiveInt(key string, fallback int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", key)
+	}
+	return value, nil
 }
 
 func loadAdminOrigins() ([]string, error) {

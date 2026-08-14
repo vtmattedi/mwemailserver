@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/vtmattedi/mw-email-server/internal/domain"
 )
@@ -20,17 +21,17 @@ func (s *Store) ListProjectEmailCounts(
 			COUNT(e.project_id) AS email_count,
 
 			SUM(CASE
-				WHEN e.send_status = 'pending'
+				WHEN e.status = 'pending'
 				THEN 1 ELSE 0
 			END) AS send_pending,
 
 			SUM(CASE
-				WHEN e.send_status = 'sent'
+				WHEN e.status = 'sent'
 				THEN 1 ELSE 0
 			END) AS send_sent,
 
 			SUM(CASE
-				WHEN e.send_status = 'failed'
+				WHEN e.status = 'failed'
 				THEN 1 ELSE 0
 			END) AS send_failed,
 
@@ -85,7 +86,7 @@ func (s *Store) ListProjectEmailCounts(
 		`,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query project email counts: %w", err)
 	}
 	defer rows.Close()
 
@@ -114,7 +115,7 @@ func (s *Store) ListProjectEmailCounts(
 			&item.Delivery.Suppressed,
 			&item.Delivery.Complained,
 		); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan project email counts: %w", err)
 		}
 
 		item.Enabled = enabled != 0
@@ -123,7 +124,7 @@ func (s *Store) ListProjectEmailCounts(
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("iterate project email counts: %w", err)
 	}
 
 	return projects, nil

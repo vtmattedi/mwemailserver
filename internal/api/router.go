@@ -2,11 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/vtmattedi/mw-email-server/internal/admin"
 	"github.com/vtmattedi/mw-email-server/internal/auth"
 	"github.com/vtmattedi/mw-email-server/internal/email"
+	"github.com/vtmattedi/mw-email-server/internal/federation"
 	"github.com/vtmattedi/mw-email-server/internal/providers/resend"
 	"github.com/vtmattedi/mw-email-server/internal/store"
 )
@@ -27,6 +31,8 @@ type Dependencies struct {
 	AdminService      *admin.Service
 	AdminOrigins      []string
 	AdminSecureCookie bool
+	AdminAuthMode     string
+	FederationClient  federation.Introspector
 
 	CheckSPHost bool
 	SPHost      string
@@ -107,67 +113,86 @@ func NewRouter(deps Dependencies) http.Handler {
 
 func newAdminRouter(deps Dependencies) http.Handler {
 	mux := http.NewServeMux()
+	mode := deps.AdminAuthMode
+	if mode == "" {
+		mode = "local"
+	}
+	concealCfg := admin.ConcealmentConfig{
+		AllowedOrigins: deps.AdminOrigins,
+		CheckHost:      deps.CheckSPHost,
+		RequiredHost:   deps.SPHost,
+	}
+	localEndpoint := func(handler http.Handler) http.Handler {
+		if mode == "federated" {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				writeError(w, http.StatusUnauthorized, "local admin authentication is disabled")
+			})
+		}
+		return admin.Conceal(concealCfg, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			handler.ServeHTTP(w, r)
+		}))
+	}
 
-	mux.HandleFunc(
+	mux.Handle(
 		"POST /admin/api/auth/login",
-		AdminLogin(deps.AdminService, deps.AdminSecureCookie),
+		localEndpoint(AdminLogin(deps.AdminService, deps.AdminSecureCookie)),
 	)
 
-	sessionOnly := func(handler http.Handler) http.Handler {
-		return admin.RequireSession(
+	authorize := func(scope string, mutation bool, handler http.Handler) http.Handler {
+		handler = auditAdminOperation(scope, handler)
+		local := admin.RequireSession(
 			deps.AdminService,
 			handler,
 		)
-	}
-
-	sessionAndCSRF := func(handler http.Handler) http.Handler {
-		return admin.RequireSession(
-			deps.AdminService,
-			admin.RequireCSRF(
-				deps.AdminService,
-				handler,
-			),
-		)
+		if mutation {
+			local = admin.RequireSession(deps.AdminService, admin.RequireCSRF(deps.AdminService, handler))
+		}
+		local = admin.Conceal(concealCfg, local)
+		return adminAuthRoute(mode, deps.FederationClient, concealCfg, scope, local, handler)
 	}
 
 	mux.Handle(
 		"GET /admin/api/auth/me",
-		sessionOnly(
+		localEndpoint(admin.RequireSession(deps.AdminService,
 			http.HandlerFunc(AdminMe),
-		),
+		)),
 	)
 
 	mux.Handle(
 		"POST /admin/api/auth/csrf",
-		sessionOnly(
+		localEndpoint(admin.RequireSession(deps.AdminService,
 			http.HandlerFunc(
 				AdminRotateCSRF(deps.AdminService),
 			),
-		),
+		)),
 	)
 
 	mux.Handle(
 		"POST /admin/api/auth/logout",
-		sessionAndCSRF(
+		localEndpoint(admin.RequireSession(deps.AdminService, admin.RequireCSRF(deps.AdminService,
 			http.HandlerFunc(
 				AdminLogout(
 					deps.AdminService,
 					deps.AdminSecureCookie,
 				),
 			),
-		),
+		))),
 	)
 
 	mux.Handle(
 		"GET /admin/api/health",
-		sessionOnly(
+		authorize("mail.projects.read", false,
 			http.HandlerFunc(AdminHealth),
 		),
 	)
 
 	mux.Handle(
 		"GET /admin/api/projects",
-		sessionOnly(
+		authorize("mail.projects.read", false,
 			http.HandlerFunc(
 				AdminListProjects(deps.AdminService),
 			),
@@ -176,7 +201,7 @@ func newAdminRouter(deps Dependencies) http.Handler {
 
 	mux.Handle(
 		"POST /admin/api/projects",
-		sessionAndCSRF(
+		authorize("mail.projects.write", true,
 			http.HandlerFunc(
 				AdminCreateProject(deps.AdminService),
 			),
@@ -185,7 +210,7 @@ func newAdminRouter(deps Dependencies) http.Handler {
 
 	mux.Handle(
 		"PATCH /admin/api/projects/{id}",
-		sessionAndCSRF(
+		authorize("mail.projects.write", true,
 			http.HandlerFunc(
 				AdminUpdateProject(deps.AdminService),
 			),
@@ -194,7 +219,7 @@ func newAdminRouter(deps Dependencies) http.Handler {
 
 	mux.Handle(
 		"POST /admin/api/projects/{id}/rotate-key",
-		sessionAndCSRF(
+		authorize("mail.credentials.rotate", true,
 			http.HandlerFunc(
 				AdminRotateProjectKey(deps.AdminService),
 			),
@@ -203,20 +228,20 @@ func newAdminRouter(deps Dependencies) http.Handler {
 
 	mux.Handle(
 		"GET /admin/api/projects/{id}/request-domains",
-		sessionOnly(http.HandlerFunc(
+		authorize("mail.projects.read", false, http.HandlerFunc(
 			AdminGetProjectRequestDomains(deps.Store),
 		)),
 	)
 	mux.Handle(
 		"PUT /admin/api/projects/{id}/request-domains",
-		sessionAndCSRF(http.HandlerFunc(
+		authorize("mail.projects.write", true, http.HandlerFunc(
 			AdminPutProjectRequestDomains(deps.Store),
 		)),
 	)
 
 	mux.Handle(
 		"GET /admin/api/emails",
-		sessionOnly(
+		authorize("mail.emails.read", false,
 			http.HandlerFunc(
 				AdminListEmails(deps.AdminService),
 			),
@@ -225,7 +250,7 @@ func newAdminRouter(deps Dependencies) http.Handler {
 
 	mux.Handle(
 		"GET /admin/api/emails/by-project",
-		sessionOnly(
+		authorize("mail.usage.read", false,
 			http.HandlerFunc(
 				AdminProjectEmailCounts(deps.Store),
 			),
@@ -234,21 +259,73 @@ func newAdminRouter(deps Dependencies) http.Handler {
 
 	mux.Handle(
 		"GET /admin/api/emails/{id}",
-		sessionOnly(
+		authorize("mail.emails.read", false,
 			http.HandlerFunc(
 				AdminGetEmail(deps.AdminService),
 			),
 		),
 	)
 
-	return admin.Conceal(
-		admin.ConcealmentConfig{
-			AllowedOrigins: deps.AdminOrigins,
-			CheckHost:      deps.CheckSPHost,
-			RequiredHost:   deps.SPHost,
-		},
-		mux,
-	)
+	return mux
+}
+
+func adminAuthRoute(mode string, client federation.Introspector, concealCfg admin.ConcealmentConfig, scope string, local, handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+			if mode == "local" || client == nil {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			federated := federation.Authenticate(client, scope, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fp, _ := federation.PrincipalFromContext(r.Context())
+				authTime := fp.AuthTime
+				principal := admin.Principal{Source: "federated", IdentitySubject: &fp.Subject, Scopes: fp.Scopes, AMR: fp.AMR, Audience: fp.Audience}
+				if !authTime.IsZero() {
+					principal.AuthTime = &authTime
+				}
+				handler.ServeHTTP(w, r.WithContext(admin.WithPrincipal(r.Context(), principal)))
+			}))
+			admin.RequireHost(concealCfg, federated).ServeHTTP(w, r)
+			return
+		}
+		if mode == "federated" {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		local.ServeHTTP(w, r)
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func auditAdminOperation(scope string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		principal, ok := admin.PrincipalFromContext(r.Context())
+		if !ok {
+			return
+		}
+		attrs := []any{"actor_type", principal.Source, "method", r.Method, "path", r.URL.Path, "status", recorder.status, "authorized_scope", scope, "request_id", r.Header.Get("X-Request-ID")}
+		if principal.IdentitySubject != nil {
+			attrs = append(attrs, "actor_identity_sub", *principal.IdentitySubject, "delegated_audience", principal.Audience, "authorized_scopes", strings.Join(principal.Scopes, " "))
+		}
+		if principal.AuthTime != nil {
+			attrs = append(attrs, "actor_auth_time", principal.AuthTime.Format(time.RFC3339))
+		}
+		if len(principal.AMR) > 0 {
+			attrs = append(attrs, "actor_amr", strings.Join(principal.AMR, " "))
+		}
+		slog.Info("admin operation", attrs...)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

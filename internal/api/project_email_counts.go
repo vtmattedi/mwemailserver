@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/vtmattedi/mw-email-server/internal/domain"
@@ -28,6 +29,11 @@ func AdminProjectEmailCounts(
 	return func(w http.ResponseWriter, r *http.Request) {
 		projects, err := store.ListProjectEmailCounts(r.Context())
 		if err != nil {
+			slog.Error(
+				"could not load project email counts",
+				"error", err,
+				"request_id", r.Header.Get("X-Request-ID"),
+			)
 			writeError(
 				w,
 				http.StatusInternalServerError,

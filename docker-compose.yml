@@ -5,6 +5,6 @@ services:
     env_file:
       - .env
     ports:
-      - "8465:8082"
+      - "8082:8082"
     volumes:
       - ./data:/app/data

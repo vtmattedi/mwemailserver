@@ -549,9 +549,18 @@ RESEND_WEBHOOK_SECRET=whsec_...
 ADMIN_ORIGIN=https://admin.example.com
 ADMIN_DEV_ORIGIN=
 
+ADMIN_AUTH_MODE=hybrid
+MW_IDENTITY_INTERNAL_BASE_URL=http://mw-identity:7100
+MW_IDENTITY_INTROSPECTION_CLIENT_ID=<mw-mail-resource-client-id>
+MW_IDENTITY_INTROSPECTION_CLIENT_SECRET=<secret>
+MW_IDENTITY_AUDIENCE=mw-mail
+MW_IDENTITY_HTTP_TIMEOUT_SECONDS=5
+
 CHECK_SP_HOST=true
 SP_HOST=mailgo.mattediworks.com
 ```
+
+For the admin federation modes, Identity introspection contract, and route-to-scope mapping, see [Federated admin authentication](federation.md).
 
 Client applications normally only need:
 
