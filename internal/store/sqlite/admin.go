@@ -425,6 +425,81 @@ func (s *Store) RotateAdminProjectToken(
 	return nil
 }
 
+func (s *Store) DeleteAdminProject(
+	ctx context.Context,
+	params admin.DeleteProjectParams,
+) (admin.Project, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return admin.Project{}, fmt.Errorf("begin project deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	project, err := scanAdminProject(tx.QueryRowContext(
+		ctx,
+		`SELECT id, name, enabled, monthly_limit, created_at, updated_at
+		 FROM projects
+		 WHERE id = ?
+		 LIMIT 1`,
+		params.ID,
+	))
+	if err != nil {
+		return admin.Project{}, err
+	}
+
+	var dependencyCount int64
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM email_attempts WHERE project_id = ?`,
+		params.ID,
+	).Scan(&dependencyCount); err != nil {
+		return admin.Project{}, fmt.Errorf("count project dependencies: %w", err)
+	}
+	if dependencyCount > 0 {
+		return admin.Project{}, admin.ErrProjectHasDependencies
+	}
+
+	result, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, params.ID)
+	if err != nil {
+		return admin.Project{}, fmt.Errorf("delete project: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return admin.Project{}, fmt.Errorf("read project deletion result: %w", err)
+	}
+	if rows != 1 {
+		return admin.Project{}, sql.ErrNoRows
+	}
+
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO admin_audit_events (
+			event_type,
+			actor_type,
+			actor_identity_sub,
+			actor_local_admin_id,
+			project_id,
+			project_name,
+			request_id,
+			occurred_at
+		) VALUES ('project.deleted', ?, ?, ?, ?, ?, ?, ?)`,
+		params.ActorType,
+		nullableStringPointer(params.IdentitySubject),
+		nullableInt64Pointer(params.LocalAdminID),
+		project.ID,
+		project.Name,
+		params.RequestID,
+		params.OccurredAt.UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		return admin.Project{}, fmt.Errorf("insert project deletion audit event: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return admin.Project{}, fmt.Errorf("commit project deletion: %w", err)
+	}
+	return project, nil
+}
+
 func (s *Store) ListAdminEmailAttempts(
 	ctx context.Context,
 	params admin.ListEmailAttemptsParams,
@@ -857,6 +932,13 @@ func scanAdminEmailAttempt(row rowScanner) (admin.EmailAttempt, error) {
 }
 
 func nullableInt64Pointer(value *int64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableStringPointer(value *string) any {
 	if value == nil {
 		return nil
 	}

@@ -81,6 +81,15 @@ type UpdateProjectParams struct {
 	ClearMonthlyLimit bool
 }
 
+type DeleteProjectParams struct {
+	ID              int64
+	ActorType       string
+	IdentitySubject *string
+	LocalAdminID    *int64
+	RequestID       string
+	OccurredAt      time.Time
+}
+
 type ListEmailAttemptsParams struct {
 	Limit          int
 	Offset         int

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -295,6 +296,46 @@ func AdminRotateProjectKey(service *admin.Service) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, rotateProjectKeyResponse{
 			APIKey: apiKey,
 		})
+	}
+}
+
+func AdminDeleteProject(service *admin.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID, err := positivePathID(r, "id")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid project id")
+			return
+		}
+
+		_, err = service.DeleteProject(
+			r.Context(),
+			projectID,
+			r.Header.Get("X-Request-ID"),
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
+				writeError(w, http.StatusNotFound, "project not found")
+			case errors.Is(err, admin.ErrProjectHasDependencies):
+				writeErrorCode(
+					w,
+					http.StatusConflict,
+					"project_has_dependencies",
+					"project has retained email history",
+				)
+			default:
+				slog.Error(
+					"failed to delete project",
+					"error", err,
+					"project_id", projectID,
+					"request_id", r.Header.Get("X-Request-ID"),
+				)
+				writeError(w, http.StatusInternalServerError, "failed to delete project")
+			}
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

@@ -191,6 +191,16 @@ func newAdminRouter(deps Dependencies) http.Handler {
 	)
 
 	mux.Handle(
+		"GET /admin/api/docs",
+		authorize("mail.server.read", false, http.HandlerFunc(AdminListAPIDocs)),
+	)
+
+	mux.Handle(
+		"GET /admin/api/docs/{version}",
+		authorize("mail.server.read", false, http.HandlerFunc(AdminGetAPIDocs)),
+	)
+
+	mux.Handle(
 		"GET /admin/api/projects",
 		authorize("mail.projects.read", false,
 			http.HandlerFunc(
@@ -222,6 +232,15 @@ func newAdminRouter(deps Dependencies) http.Handler {
 		authorize("mail.credentials.rotate", true,
 			http.HandlerFunc(
 				AdminRotateProjectKey(deps.AdminService),
+			),
+		),
+	)
+
+	mux.Handle(
+		"DELETE /admin/api/projects/{id}",
+		authorize("mail.projects.delete", true,
+			http.HandlerFunc(
+				AdminDeleteProject(deps.AdminService),
 			),
 		),
 	)
@@ -345,4 +364,11 @@ func writeError(w http.ResponseWriter, status int, message string) {
 			"error": message,
 		},
 	)
+}
+
+func writeErrorCode(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]string{
+		"code":  code,
+		"error": message,
+	})
 }

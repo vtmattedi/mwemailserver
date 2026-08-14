@@ -47,11 +47,32 @@ Federated requests do not require a browser `Origin` or CSRF token. `CHECK_SP_HO
 | `GET /admin/api/projects/{id}/request-domains` | `mail.projects.read`      |
 | `PUT /admin/api/projects/{id}/request-domains` | `mail.projects.write`     |
 | `POST /admin/api/projects/{id}/rotate-key`     | `mail.credentials.rotate` |
+| `DELETE /admin/api/projects/{id}`             | `mail.projects.delete`    |
 | `GET /admin/api/emails`                        | `mail.emails.read`        |
 | `GET /admin/api/emails/{id}`                   | `mail.emails.read`        |
 | `GET /admin/api/emails/by-project`             | `mail.usage.read`         |
+| `GET /admin/api/docs`                          | `mail.server.read`        |
+| `GET /admin/api/docs/{version}`                | `mail.server.read`        |
 
 Local-only endpoints under `/admin/api/auth/*` are not federated operations.
+
+### Project deletion
+
+`DELETE /admin/api/projects/{id}` requires the dedicated
+`mail.projects.delete` scope. It returns `204` after atomically deleting the
+project and revoking its API credential, or `404` when the exact project ID no
+longer exists. Projects with retained email history are not deleted and return:
+
+```json
+{
+  "code": "project_has_dependencies",
+  "error": "project has retained email history"
+}
+```
+
+The conflict status is `409`. Successful deletion stores an immutable audit
+event with the human actor, deleted project ID and name, request ID, and UTC
+timestamp.
 
 ## Errors and audit context
 

@@ -431,13 +431,19 @@ POST /admin/api/auth/csrf
 POST /admin/api/auth/logout
 
 GET   /admin/api/health
+GET   /admin/api/docs
+GET   /admin/api/docs/{version}
 GET   /admin/api/projects
 POST  /admin/api/projects
 PATCH /admin/api/projects/{id}
+DELETE /admin/api/projects/{id}
 POST  /admin/api/projects/{id}/rotate-key
+GET   /admin/api/projects/{id}/request-domains
+PUT   /admin/api/projects/{id}/request-domains
 
 GET /admin/api/emails
 GET /admin/api/emails/{id}
+GET /admin/api/emails/by-project
 ```
 
 ## 16. Admin Route Concealment

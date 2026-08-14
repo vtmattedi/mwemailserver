@@ -15,11 +15,13 @@ import (
 const DefaultSessionTTL = 7 * 24 * time.Hour
 
 var (
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrAdminDisabled      = errors.New("admin account is disabled")
-	ErrInvalidSession     = errors.New("invalid admin session")
-	ErrExpiredSession     = errors.New("admin session has expired")
-	ErrInvalidCSRF        = errors.New("invalid CSRF token")
+	ErrInvalidCredentials     = errors.New("invalid credentials")
+	ErrAdminDisabled          = errors.New("admin account is disabled")
+	ErrInvalidSession         = errors.New("invalid admin session")
+	ErrExpiredSession         = errors.New("admin session has expired")
+	ErrInvalidCSRF            = errors.New("invalid CSRF token")
+	ErrProjectHasDependencies = errors.New("project has retained email history")
+	ErrAdminPrincipalMissing  = errors.New("trusted admin principal is required")
 )
 
 type Service struct {
@@ -291,6 +293,45 @@ func (s *Service) RotateProjectKey(
 	}
 
 	return apiKey, nil
+}
+
+func (s *Service) DeleteProject(
+	ctx context.Context,
+	projectID int64,
+	requestID string,
+) (Project, error) {
+	if projectID <= 0 {
+		return Project{}, fmt.Errorf("invalid project id")
+	}
+
+	principal, ok := PrincipalFromContext(ctx)
+	if !ok {
+		return Project{}, ErrAdminPrincipalMissing
+	}
+
+	params := DeleteProjectParams{
+		ID:         projectID,
+		ActorType:  principal.Source,
+		RequestID:  strings.TrimSpace(requestID),
+		OccurredAt: time.Now().UTC(),
+	}
+	switch principal.Source {
+	case "federated":
+		if principal.IdentitySubject == nil || strings.TrimSpace(*principal.IdentitySubject) == "" {
+			return Project{}, ErrAdminPrincipalMissing
+		}
+		subject := strings.TrimSpace(*principal.IdentitySubject)
+		params.IdentitySubject = &subject
+	case "local":
+		if principal.LocalAdminID == nil || *principal.LocalAdminID <= 0 {
+			return Project{}, ErrAdminPrincipalMissing
+		}
+		params.LocalAdminID = principal.LocalAdminID
+	default:
+		return Project{}, ErrAdminPrincipalMissing
+	}
+
+	return s.store.DeleteAdminProject(ctx, params)
 }
 
 func (s *Service) ListEmailAttempts(

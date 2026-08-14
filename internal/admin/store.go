@@ -80,6 +80,11 @@ type Store interface {
 		tokenHash string,
 	) error
 
+	DeleteAdminProject(
+		ctx context.Context,
+		params DeleteProjectParams,
+	) (Project, error)
+
 	ListAdminEmailAttempts(
 		ctx context.Context,
 		params ListEmailAttemptsParams,
