@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,9 +32,17 @@ func TestFederatedAPIDocumentationRoutes(t *testing.T) {
 	}
 
 	document := request("/admin/api/docs/v1")
-	if document.Code != http.StatusOK || document.Header().Get("Content-Type") != "text/markdown; charset=utf-8" ||
-		!strings.Contains(document.Body.String(), "mail.projects.delete") {
+	if document.Code != http.StatusOK || document.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("document status=%d content-type=%q", document.Code, document.Header().Get("Content-Type"))
+	}
+	var payload adminDocResponse
+	if err := json.Unmarshal(document.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Version != "v1" || payload.Status != "current" ||
+		payload.ContentType != "text/markdown" ||
+		!strings.Contains(payload.Documentation, "mail.projects.delete") {
+		t.Fatalf("unexpected documentation response: %+v", payload)
 	}
 
 	identity.principal.Scopes = []string{"mail.projects.read"}

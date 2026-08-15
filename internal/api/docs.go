@@ -6,9 +6,20 @@ import (
 	"github.com/vtmattedi/mw-email-server/internal/apidocs"
 )
 
+type adminDocsListResponse struct {
+	Versions []apidocs.Version `json:"versions"`
+}
+
+type adminDocResponse struct {
+	Version       string `json:"version"`
+	Status        string `json:"status"`
+	ContentType   string `json:"content_type"`
+	Documentation string `json:"documentation"`
+}
+
 func AdminListAPIDocs(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"versions": apidocs.List(),
+	writeJSON(w, http.StatusOK, adminDocsListResponse{
+		Versions: apidocs.List(),
 	})
 }
 
@@ -19,8 +30,11 @@ func AdminGetAPIDocs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", meta.ContentType+"; charset=utf-8")
 	w.Header().Set("X-MW-API-Docs-Version", meta.Version)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(body))
+	writeJSON(w, http.StatusOK, adminDocResponse{
+		Version:       meta.Version,
+		Status:        meta.Status,
+		ContentType:   meta.ContentType,
+		Documentation: body,
+	})
 }
